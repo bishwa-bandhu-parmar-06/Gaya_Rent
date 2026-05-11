@@ -1,4 +1,3 @@
-// server/controllers/ownerController.js
 import { dbQuery, dbRun } from "../config/db.js";
 import Owner from "../models/owner.js";
 import Property from "../models/Property.js";
@@ -9,9 +8,9 @@ import Property from "../models/Property.js";
 export const getDashboardStats = async (req, res) => {
   try {
     const stats = await Owner.getOwnerDashboard(req.user.id);
-
     res.status(200).json(stats);
   } catch (error) {
+    console.error("Dashboard Stats Error:", error);
     res.status(500).json({ error: "Failed to fetch dashboard stats." });
   }
 };
@@ -25,6 +24,7 @@ export const getOwnerProfile = async (req, res) => {
 
     if (!profile.length)
       return res.status(404).json({ error: "Profile not found." });
+
     res.status(200).json(profile[0]);
   } catch (error) {
     res.status(500).json({ error: "Failed to fetch profile." });
@@ -103,6 +103,7 @@ export const editProperty = async (req, res) => {
         "Property updated successfully. Status reverted to pending for review.",
     });
   } catch (error) {
+    console.error("Edit Property Error:", error);
     res.status(500).json({ error: "Failed to edit property." });
   }
 };
@@ -111,10 +112,13 @@ export const deleteProperty = async (req, res) => {
   const { id } = req.params;
   try {
     const result = await Property.delete(id, req.user.id);
+
+    // .changes works here because our dbRun wrapper converts Postgres' res.rowCount to .changes
     if (result.changes === 0)
       return res
         .status(404)
         .json({ error: "Property not found or unauthorized." });
+
     res.status(200).json({ message: "Property deleted successfully." });
   } catch (error) {
     res.status(500).json({ error: "Failed to delete property." });
@@ -135,49 +139,62 @@ export const togglePropertyAvailability = async (req, res) => {
       req.user.id,
       availability,
     );
+
     if (result.changes === 0)
       return res
         .status(404)
         .json({ error: "Property not found or unauthorized." });
+
     res.status(200).json({ message: `Property marked as ${availability}.` });
   } catch (error) {
     res.status(500).json({ error: "Failed to update availability." });
   }
 };
 
-
-// Add this new function to ownerController.js
-
+// ==========================================
+// 📂 BULK ACTIONS
+// ==========================================
 export const bulkUploadProperties = async (req, res) => {
   try {
     const { properties } = req.body;
-    
+
     if (!Array.isArray(properties) || properties.length === 0) {
-      return res.status(400).json({ error: "Invalid data format. Expected an array of properties." });
+      return res
+        .status(400)
+        .json({
+          error: "Invalid data format. Expected an array of properties.",
+        });
     }
 
     let successCount = 0;
 
     for (const prop of properties) {
       // If the CSV included image URLs separated by pipes/semicolons, parse them. Otherwise, empty array.
-      const photosArray = prop.photos ? prop.photos.split('|').map(url => url.trim()) : [];
+      const photosArray = prop.photos
+        ? prop.photos.split("|").map((url) => url.trim())
+        : [];
       const photosJson = JSON.stringify(photosArray);
 
-      const propertyData = { 
+      const propertyData = {
         title: prop.title,
         location: prop.location,
-        type: prop.type || 'Apartment',
+        type: prop.type || "Apartment",
+        // Rent comes in as a string from CSV, we convert it to Number for Postgres Numeric column
         rent: Number(prop.rent),
         size: prop.size,
-        furnishing: prop.furnishing || 'Unfurnished',
-        photos: photosJson 
+        furnishing: prop.furnishing || "Unfurnished",
+        photos: photosJson,
       };
 
       await Property.create(req.user.id, propertyData);
       successCount++;
     }
 
-    res.status(201).json({ message: `Successfully uploaded ${successCount} properties. Pending admin approval.` });
+    res
+      .status(201)
+      .json({
+        message: `Successfully uploaded ${successCount} properties. Pending admin approval.`,
+      });
   } catch (error) {
     console.error("Bulk Upload Error:", error);
     res.status(500).json({ error: "Failed to process bulk upload." });

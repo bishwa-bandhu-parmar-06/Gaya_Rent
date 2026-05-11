@@ -1,20 +1,24 @@
 import { dbQuery } from "../config/db.js";
 
-
+// ==========================================
+// 🌍 GET ALL PROPERTIES (PUBLIC SEARCH)
+// ==========================================
 export const getAllProperties = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 12;
     const offset = (page - 1) * limit;
 
-    const { search, minRent, maxRent, furnishing, bhk, minRating, sort } = req.query;
+    const { search, minRent, maxRent, furnishing, bhk, minRating, sort } =
+      req.query;
 
     let whereClause = `WHERE p.status = 'approved' AND p.availability = 'available'`;
     const queryParams = [];
 
     // 1. Text Search (Matches Title or Location)
+    // IMPORTANT: Changed LIKE to ILIKE for PostgreSQL case-insensitive search
     if (search) {
-      whereClause += ` AND (p.title LIKE ? OR p.location LIKE ?)`;
+      whereClause += ` AND (p.title ILIKE ? OR p.location ILIKE ?)`;
       queryParams.push(`%${search}%`, `%${search}%`);
     }
 
@@ -30,18 +34,19 @@ export const getAllProperties = async (req, res) => {
 
     // 3. Furnishing (Handles multiple: "Fully Furnished,Unfurnished")
     if (furnishing) {
-      const furnishArr = furnishing.split(',');
-      const placeholders = furnishArr.map(() => '?').join(',');
+      const furnishArr = furnishing.split(",");
+      const placeholders = furnishArr.map(() => "?").join(",");
       whereClause += ` AND p.furnishing IN (${placeholders})`;
       queryParams.push(...furnishArr);
     }
 
     // 4. BHK / Size (Matches text like "2 BHK" or "1000 sqft")
+    // Changed LIKE to ILIKE here as well
     if (bhk) {
-      const bhkArr = bhk.split(',');
-      const bhkConditions = bhkArr.map(() => `p.size LIKE ?`).join(' OR ');
+      const bhkArr = bhk.split(",");
+      const bhkConditions = bhkArr.map(() => `p.size ILIKE ?`).join(" OR ");
       whereClause += ` AND (${bhkConditions})`;
-      bhkArr.forEach(b => queryParams.push(`%${b}%`));
+      bhkArr.forEach((b) => queryParams.push(`%${b}%`));
     }
 
     // 5. Build the Base Query (Calculates Average Rating dynamically)
@@ -53,35 +58,50 @@ export const getAllProperties = async (req, res) => {
       ${whereClause}
     `;
 
-    // 6. Filter by Minimum Rating (Must wrap in outer query since average_rating is calculated)
+    // 6. Filter by Minimum Rating
+    // IMPORTANT: Postgres requires an alias for subqueries. Added "AS subquery_rating"
     if (minRating) {
-      baseQuery = `SELECT * FROM (${baseQuery}) WHERE average_rating >= ?`;
+      baseQuery = `SELECT * FROM (${baseQuery}) AS subquery_rating WHERE average_rating >= ?`;
       queryParams.push(Number(minRating));
     }
 
     // 7. Sorting Logic
     let orderBy = `ORDER BY created_at DESC`;
-    if (sort === 'price_low') orderBy = `ORDER BY rent ASC`;
-    if (sort === 'price_high') orderBy = `ORDER BY rent DESC`;
-    if (sort === 'rating') orderBy = `ORDER BY average_rating DESC`;
+    if (sort === "price_low") orderBy = `ORDER BY rent ASC`;
+    if (sort === "price_high") orderBy = `ORDER BY rent DESC`;
+    if (sort === "rating") orderBy = `ORDER BY average_rating DESC`;
 
     // 8. Count Total Items (For Pagination Math)
-    const countQuery = `SELECT COUNT(*) as total FROM (${baseQuery})`;
+    // IMPORTANT: Postgres requires an alias for subqueries. Added "AS count_table"
+    const countQuery = `SELECT COUNT(*) as total FROM (${baseQuery}) AS count_table`;
     const countResult = await dbQuery(countQuery, queryParams);
-    const totalItems = countResult[0].total;
+
+    // Convert Postgres String Count to Number
+    const totalItems = Number(countResult[0].total);
     const totalPages = Math.ceil(totalItems / limit);
 
     // 9. Execute Final Paginated Query
     const paginatedQuery = `${baseQuery} ${orderBy} LIMIT ? OFFSET ?`;
     queryParams.push(limit, offset);
-    
+
     const properties = await dbQuery(paginatedQuery, queryParams);
 
-    res.status(200).json({
-      properties,
-      pagination: { totalItems, totalPages, currentPage: page, itemsPerPage: limit }
-    });
+    // Ensure rent and average_rating are parsed as numbers for the frontend
+    const formattedProperties = properties.map((prop) => ({
+      ...prop,
+      rent: Number(prop.rent),
+      average_rating: Number(prop.average_rating),
+    }));
 
+    res.status(200).json({
+      properties: formattedProperties,
+      pagination: {
+        totalItems,
+        totalPages,
+        currentPage: page,
+        itemsPerPage: limit,
+      },
+    });
   } catch (error) {
     console.error("Fetch Properties Error:", error);
     res.status(500).json({ error: "Failed to fetch properties." });
@@ -110,15 +130,22 @@ export const getPropertyById = async (req, res) => {
         .json({ error: "Property not found or is no longer available." });
     }
 
-    res.status(200).json(property[0]);
+    // Ensure rent is a number
+    const formattedProperty = {
+      ...property[0],
+      rent: Number(property[0].rent),
+    };
+
+    res.status(200).json(formattedProperty);
   } catch (error) {
     console.error("Fetch Property ID Error:", error);
     res.status(500).json({ error: "Failed to fetch property details." });
   }
 };
 
-
-// Fetch ALL reviews for a specific property (Public Route)
+// ==========================================
+// ⭐ GET PROPERTY REVIEWS
+// ==========================================
 export const getPropertyReviews = async (req, res) => {
   const { id } = req.params;
   try {

@@ -1,0 +1,23 @@
+{
+  "name": "gaya_rent",
+  "version": "1.0.0",
+  "description": "Root control for GayaRent",
+  "main": "index.js",
+  "scripts": {
+    "dev": "npm run dev --prefix server",
+    "start": "npm start --prefix server",
+    "install:all": "npm install --prefix client && npm install --prefix server",
+    "build": "npm run build --prefix client"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bishwa-bandhu-parmar-06/Gaya_Rent.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/bishwa-bandhu-parmar-06/Gaya_Rent/issues"
+  },
+  "homepage": "https://github.com/bishwa-bandhu-parmar-06/Gaya_Rent#readme"
+}

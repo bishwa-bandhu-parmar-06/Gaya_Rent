@@ -3,21 +3,29 @@ import { dbQuery, dbRun } from "../config/db.js";
 // ==========================================
 // 📊 DASHBOARD STATS
 // ==========================================
-// server/controllers/adminController.js
-
 export const getDashboardStats = async (req, res) => {
   try {
     const stats = await dbQuery(`
       SELECT 
-        (SELECT COUNT(*) FROM users WHERE role = 'tenant') as totalTenants,
-        (SELECT COUNT(*) FROM users WHERE role = 'owner') as totalPartners,
-        (SELECT COUNT(*) FROM users WHERE role = 'owner' AND is_approved = 0) as pendingPartners,
-        (SELECT COUNT(*) FROM properties) as totalProperties,
-        (SELECT COUNT(*) FROM properties WHERE status = 'pending') as pendingProperties,
-        (SELECT COUNT(*) FROM properties WHERE status = 'approved') as activeProperties
+        (SELECT COUNT(*) FROM users WHERE role = 'tenant') as "totalTenants",
+        (SELECT COUNT(*) FROM users WHERE role = 'owner') as "totalPartners",
+        (SELECT COUNT(*) FROM users WHERE role = 'owner' AND is_approved = FALSE) as "pendingPartners",
+        (SELECT COUNT(*) FROM properties) as "totalProperties",
+        (SELECT COUNT(*) FROM properties WHERE status = 'pending') as "pendingProperties",
+        (SELECT COUNT(*) FROM properties WHERE status = 'approved') as "activeProperties"
     `);
 
-    res.status(200).json(stats[0]);
+    // PostgreSQL returns COUNT as a string, so we map them to Numbers safely
+    const formattedStats = {
+      totalTenants: Number(stats[0].totalTenants || 0),
+      totalPartners: Number(stats[0].totalPartners || 0),
+      pendingPartners: Number(stats[0].pendingPartners || 0),
+      totalProperties: Number(stats[0].totalProperties || 0),
+      pendingProperties: Number(stats[0].pendingProperties || 0),
+      activeProperties: Number(stats[0].activeProperties || 0),
+    };
+
+    res.status(200).json(formattedStats);
   } catch (error) {
     console.error("Stats Error:", error);
     res.status(500).json({ error: "Internal server error" });
@@ -63,11 +71,10 @@ export const updateAdminProfile = async (req, res) => {
 // ==========================================
 // Fetch partners based on status
 export const getPartners = async (req, res) => {
-  const { status } = req.query; // 'pending', 'approved', or 'rejected'
+  const { status } = req.query; // 'pending' or 'approved'
 
-  let is_approved = 0; // Default to pending (0)
-  if (status === "approved") is_approved = 1;
-  if (status === "rejected") is_approved = -1; // Assuming -1 is rejected in your logic
+  // PostgreSQL strictly requires actual booleans (true/false) instead of 1/0
+  const is_approved = status === "approved" ? true : false;
 
   try {
     const partners = await dbQuery(
@@ -76,6 +83,7 @@ export const getPartners = async (req, res) => {
     );
     res.status(200).json(partners);
   } catch (error) {
+    console.error("Fetch Partners Error:", error);
     res.status(500).json({ error: "Failed to fetch partners." });
   }
 };
@@ -91,7 +99,8 @@ export const updatePartnerStatus = async (req, res) => {
       .json({ message: "Invalid action. Use 'approve' or 'reject'." });
   }
 
-  const is_approved = action === "approve" ? 1 : -1;
+  // True for approve, False for reject/pending
+  const is_approved = action === "approve" ? true : false;
 
   try {
     await dbRun(
@@ -106,6 +115,9 @@ export const updatePartnerStatus = async (req, res) => {
   }
 };
 
+// ==========================================
+// 🏠 PROPERTY MANAGEMENT
+// ==========================================
 export const getProperties = async (req, res) => {
   const { status, page = 1, limit = 10 } = req.query;
   const offset = (page - 1) * limit;
@@ -123,7 +135,9 @@ export const getProperties = async (req, res) => {
     // 1. Get total count for pagination
     const countQuery = `SELECT COUNT(*) as total ${baseQuery} ${whereClause}`;
     const countResult = await dbQuery(countQuery, params);
-    const totalItems = countResult[0].total;
+
+    // Convert Postgres String Count to Number
+    const totalItems = Number(countResult[0].total);
     const totalPages = Math.ceil(totalItems / limit);
 
     // 2. Get paginated data
@@ -183,6 +197,7 @@ export const bulkUpdatePropertyStatus = async (req, res) => {
 
   try {
     // Create placeholders for the SQL IN clause (e.g., ?, ?, ?)
+    // Our custom dbConfig wrapper will automatically translate these to Postgres $1, $2, $3 formats!
     const placeholders = ids.map(() => "?").join(",");
     const query = `UPDATE properties SET status = ? WHERE id IN (${placeholders})`;
 

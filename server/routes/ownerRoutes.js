@@ -9,12 +9,12 @@ import {
   editProperty,
   deleteProperty,
   togglePropertyAvailability,
+  bulkUploadProperties, // Combined the import here for cleaner code
 } from "../controllers/ownerController.js";
 import { verifyToken } from "../middlewares/authMiddleware.js";
-// Ensure you have an inline requireOwner or import requireRole
-import { upload } from "../config/cloudinary.js"; // Import the Cloudinary config
-// Add this line below your other property POST/PUT routes
-import { bulkUploadProperties } from "../controllers/ownerController.js";
+
+// IMPORT THE NEW SPECIFIC CLOUDINARY UPLOADER
+import { uploadPropertyPhotos } from "../config/cloudinary.js";
 
 const router = express.Router();
 
@@ -34,13 +34,22 @@ router.put("/profile", updateOwnerProfile);
 // 🏠 Property CRUD
 router.get("/properties", getMyProperties);
 
-// We use upload.array('photos', 5) to allow up to 5 images per property
-router.post("/properties", upload.array("photos", 5), addProperty);
-router.put("/properties/:id", upload.array("photos", 5), editProperty);
+// Use uploadPropertyPhotos instead of upload
+router.post(
+  "/properties",
+  uploadPropertyPhotos.array("photos", 5),
+  addProperty,
+);
+router.put(
+  "/properties/:id",
+  uploadPropertyPhotos.array("photos", 5),
+  editProperty,
+);
 
 router.delete("/properties/:id", deleteProperty);
 router.patch("/properties/:id/availability", togglePropertyAvailability);
 
-// Make sure it doesn't use the upload.array middleware, since it's just JSON
+// Bulk upload uses raw JSON, no file upload middleware needed here
 router.post("/properties/bulk", bulkUploadProperties);
+
 export default router;

@@ -16,7 +16,6 @@ export const registerTenant = async (req, res) => {
   }
 
   try {
-    // Assuming your User model has a method to check both email and mobile
     const existingUser = await User.findByEmailOrMobile(email, mobile);
     if (existingUser) {
       return res
@@ -25,7 +24,7 @@ export const registerTenant = async (req, res) => {
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const documentUrl = file.path; // The saved path from multer
+    const documentUrl = file.path;
 
     const userId = await User.create({
       name,
@@ -35,8 +34,8 @@ export const registerTenant = async (req, res) => {
       role: "tenant",
       docType,
       docId,
-      documentUrl, // Save the path to the DB
-      is_approved: 1, // Tenants might be auto-approved, change to 0 if they require admin check
+      documentUrl,
+      is_approved: true, // Postgres boolean TRUE
     });
 
     res
@@ -79,7 +78,7 @@ export const registerOwner = async (req, res) => {
       docType,
       docId,
       documentUrl,
-      is_approved: 0, // Owners are STRICTLY pending until admin approval
+      is_approved: false, // Postgres boolean FALSE
     });
 
     res.status(201).json({
@@ -104,7 +103,6 @@ export const registerAdmin = async (req, res) => {
   }
 
   try {
-    // Check if email or mobile is already registered
     const existingUser = await User.findByEmailOrMobile(email, mobile);
     if (existingUser) {
       return res
@@ -120,7 +118,7 @@ export const registerAdmin = async (req, res) => {
       mobile,
       password: hashedPassword,
       role: "admin",
-      is_approved: 1, // Admins are inherently approved
+      is_approved: true, // Postgres boolean TRUE
       docType: null,
       docId: null,
       documentUrl: null,
@@ -145,7 +143,6 @@ export const loginAdmin = async (req, res) => {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    // Security Check: ONLY allow admins through this specific login route
     if (user.role !== "admin") {
       return res
         .status(403)
@@ -179,12 +176,11 @@ export const loginAdmin = async (req, res) => {
 export const login = async (req, res) => {
   const { loginId, password } = req.body;
   try {
-    // Check database for either email or mobile match
     const user = await User.findByEmailOrMobile(loginId);
     if (!user) return res.status(401).json({ message: "Invalid credentials" });
 
-    // The Pending Approval Check for Owners
-    if (user.role === "owner" && user.is_approved === 0) {
+    // The Pending Approval Check for Owners (Changed to Postgres boolean check)
+    if (user.role === "owner" && user.is_approved === false) {
       return res.status(403).json({
         message: "Your account is pending. Please wait for admin approval.",
       });
@@ -225,6 +221,7 @@ export const googleLogin = async (req, res) => {
         password: null,
         role: "tenant",
         googleId,
+        is_approved: true, // Google auth gets auto-approved
       });
       user = { id: userId, role: "tenant", name };
     } else if (user.role !== "tenant") {
@@ -254,12 +251,11 @@ export const verifyUser = async (req, res) => {
 
   try {
     const user = await User.findByEmailOrMobile(loginId);
-    
+
     if (!user) {
       return res.status(404).json({ message: "Account does not exist." });
     }
 
-    // Don't send the user object back, just confirm they exist
     res.status(200).json({ message: "Account verified." });
   } catch (error) {
     console.error("Verify User Error:", error);
@@ -272,23 +268,27 @@ export const forgotPassword = async (req, res) => {
   const { loginId, newPassword } = req.body;
 
   if (!loginId || !newPassword) {
-    return res.status(400).json({ message: "Login ID and new password are required." });
+    return res
+      .status(400)
+      .json({ message: "Login ID and new password are required." });
   }
 
   try {
-    // 1. Verify user exists
     const user = await User.findByEmailOrMobile(loginId);
     if (!user) {
-      return res.status(404).json({ message: "No account found with that email or mobile number." });
+      return res
+        .status(404)
+        .json({
+          message: "No account found with that email or mobile number.",
+        });
     }
 
-    // 2. Hash the new password
     const hashedPassword = await bcrypt.hash(newPassword, 10);
-
-    // 3. Update the database
     await User.updatePassword(user.id, hashedPassword);
 
-    res.status(200).json({ message: "Password updated successfully. You can now log in." });
+    res
+      .status(200)
+      .json({ message: "Password updated successfully. You can now log in." });
   } catch (error) {
     console.error("Forgot Password Error:", error);
     res.status(500).json({ message: "Internal server error" });
@@ -296,14 +296,14 @@ export const forgotPassword = async (req, res) => {
 };
 
 // --- RESET PASSWORD (PROTECTED) ---
-// Flow: User is logged in -> Frontend matches passwords -> Sends token & new password here
 export const resetPassword = async (req, res) => {
-  // We assume a JWT middleware has already verified the user and attached req.user
-  const userId = req.user?.id; 
+  const userId = req.user?.id;
   const { newPassword } = req.body;
 
   if (!userId) {
-    return res.status(401).json({ message: "Unauthorized. Please log in first." });
+    return res
+      .status(401)
+      .json({ message: "Unauthorized. Please log in first." });
   }
 
   if (!newPassword) {
@@ -314,7 +314,9 @@ export const resetPassword = async (req, res) => {
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     await User.updatePassword(userId, hashedPassword);
 
-    res.status(200).json({ message: "Your password has been reset successfully." });
+    res
+      .status(200)
+      .json({ message: "Your password has been reset successfully." });
   } catch (error) {
     console.error("Reset Password Error:", error);
     res.status(500).json({ message: "Internal server error" });

@@ -1,6 +1,9 @@
 import { dbQuery, dbRun } from "../config/db.js";
 import Property from "../models/Property.js";
 
+// ==========================================
+// 🔍 SEARCH PROPERTIES
+// ==========================================
 export const searchProperties = async (req, res) => {
   const { location, maxRent, page = 1, limit = 20 } = req.query;
   const offset = (page - 1) * limit;
@@ -12,12 +15,23 @@ export const searchProperties = async (req, res) => {
       limit: parseInt(limit),
       offset: parseInt(offset),
     });
-    res.status(200).json(properties);
+
+    // Ensure numeric fields are cast correctly from Postgres Strings
+    const formattedProperties = properties.map((prop) => ({
+      ...prop,
+      rent: Number(prop.rent),
+    }));
+
+    res.status(200).json(formattedProperties);
   } catch (error) {
+    console.error("Search Properties Error:", error);
     res.status(500).json({ error: "Failed to search properties." });
   }
 };
 
+// ==========================================
+// 👤 TENANT PROFILE
+// ==========================================
 export const getTenantProfile = async (req, res) => {
   try {
     const profile = await dbQuery(
@@ -51,6 +65,9 @@ export const updateTenantProfile = async (req, res) => {
   }
 };
 
+// ==========================================
+// ⭐ RATINGS & REVIEWS
+// ==========================================
 export const rateProperty = async (req, res) => {
   const { id: propertyId } = req.params;
   const { rating, review } = req.body;
@@ -82,13 +99,40 @@ export const rateProperty = async (req, res) => {
       return res.status(201).json({ message: "Rating submitted." });
     }
   } catch (error) {
+    console.error("Rate Property Error:", error);
     res.status(500).json({ error: "Failed to submit rating." });
   }
 };
 
+export const getRatedProperties = async (req, res) => {
+  try {
+    const query = `
+      SELECT p.*, r.rating as my_rating, r.review as my_review 
+      FROM properties p
+      JOIN ratings r ON p.id = r.property_id
+      WHERE r.tenant_id = ?
+    `;
+    const properties = await dbQuery(query, [req.user.id]);
+
+    // Ensure numeric fields are cast correctly
+    const formattedProperties = properties.map((prop) => ({
+      ...prop,
+      rent: Number(prop.rent),
+    }));
+
+    res.status(200).json(formattedProperties);
+  } catch (error) {
+    console.error("Get Rated Properties Error:", error);
+    res.status(500).json({ error: "Failed to fetch rated properties." });
+  }
+};
+
+// ==========================================
+// ❤️ SAVED PROPERTIES
+// ==========================================
 export const toggleSaveProperty = async (req, res) => {
   const { propertyId } = req.body;
-  const tenantId = req.user.id; // The logged-in tenant
+  const tenantId = req.user.id;
 
   try {
     const existing = await dbQuery(
@@ -129,30 +173,19 @@ export const getSavedProperties = async (req, res) => {
       WHERE sp.user_id = ?
     `;
     const properties = await dbQuery(query, [tenantId]);
-    res.status(200).json(properties);
+
+    const formattedProperties = properties.map((prop) => ({
+      ...prop,
+      rent: Number(prop.rent),
+    }));
+
+    res.status(200).json(formattedProperties);
   } catch (error) {
     console.error("Get Saved Properties Error:", error);
     res.status(500).json({ error: "Failed to fetch saved properties." });
   }
 };
 
-export const getRatedProperties = async (req, res) => {
-  try {
-    const query = `
-      SELECT p.*, r.rating as my_rating, r.review as my_review 
-      FROM properties p
-      JOIN ratings r ON p.id = r.property_id
-      WHERE r.tenant_id = ?
-    `;
-    const properties = await dbQuery(query, [req.user.id]);
-    res.status(200).json(properties);
-  } catch (error) {
-    res.status(500).json({ error: "Failed to fetch rated properties." });
-  }
-};
-
-
-// Check if a specific property is saved by the logged-in user
 export const checkSavedStatus = async (req, res) => {
   const { id } = req.params;
   const tenantId = req.user.id;
@@ -160,11 +193,11 @@ export const checkSavedStatus = async (req, res) => {
   try {
     const existing = await dbQuery(
       "SELECT id FROM saved_properties WHERE user_id = ? AND property_id = ?",
-      [tenantId, id]
+      [tenantId, id],
     );
     res.status(200).json({ isSaved: existing.length > 0 });
   } catch (error) {
+    console.error("Check Saved Status Error:", error);
     res.status(500).json({ error: "Failed to check saved status." });
   }
 };
-
