@@ -97,8 +97,8 @@ nextApp
     });
 
     // Start the server
-    app.listen(port, () => {
-      console.log(`> 🚀 Server running perfectly on http://localhost:${port}`);
+    app.listen(port, "0.0.0.0", () => {
+      console.log(`> 🚀 Server running perfectly on port ${port}`);
       console.log(`> 🌍 Environment: ${dev ? "Development" : "Production"}`);
     });
   })
